@@ -47,6 +47,15 @@ func (c *Cache) GetReader(key string) (r io.Reader, ok bool) {
 	return r, true
 }
 
+func (c *Cache) GetWriter(key string) io.Writer {
+	key = keyToFilename(key)
+	pr, pw := io.Pipe()
+	go func() {
+		c.d.WriteStream(key, pr, true)
+	}()
+	return pw
+}
+
 func keyToFilename(key string) string {
 	h := md5.New()
 	io.WriteString(h, key)

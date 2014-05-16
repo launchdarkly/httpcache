@@ -38,10 +38,16 @@ type Cache interface {
 	Delete(key string)
 }
 
-// An interfaces for caches that can provider a Reader to their content
+// An interfaces for caches that can provide a Reader to their content
 type StreamingCache interface {
 	Cache
 	GetReader(key string) (r io.Reader, ok bool)
+}
+
+// An interface for caches that can provide a Writer bound to a key
+type StreamingWriteCache interface {
+	Cache
+	GetWriter(key string) (w io.Writer)
 }
 
 // cacheKey returns the cache key for req.
@@ -242,14 +248,38 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 				resp.Header.Set(fakeHeader, reqValue)
 			}
 		}
-		respBytes, err := httputil.DumpResponse(resp, true)
-		if err == nil {
-			t.Cache.Set(cacheKey, respBytes)
+		if sc, ok := t.Cache.(StreamingWriteCache); ok {
+			resp.Body = &teedBody{resp.Body, sc.GetWriter(cacheKey)}
+		} else {
+			respBytes, err := httputil.DumpResponse(resp, true)
+			if err == nil {
+				t.Cache.Set(cacheKey, respBytes)
+			}
 		}
 	} else {
 		t.Cache.Delete(cacheKey)
 	}
 	return resp, nil
+}
+
+// teedBody provides the same functionality as io.TeeReader, but with Close as well
+type teedBody struct {
+	body        io.ReadCloser
+	cacheWriter io.Writer
+}
+
+func (b *teedBody) Read(p []byte) (n int, err error) {
+	n, err = b.body.Read(p)
+	if n > 0 {
+		if n, err := b.cacheWriter.Write(p[:n]); err != nil {
+			return n, err
+		}
+	}
+	return
+}
+
+func (b *teedBody) Close() error {
+	return b.body.Close()
 }
 
 // ErrNoDateHeader indicates that the HTTP headers contained no Date header.
