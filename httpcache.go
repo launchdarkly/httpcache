@@ -38,7 +38,7 @@ type Cache interface {
 	Delete(key string)
 }
 
-// An interfaces for caches that can provide a Reader to their content
+// An interface for caches that can provide a Reader to their content
 type StreamingCache interface {
 	Cache
 	GetReader(key string) (r io.Reader, ok bool)
@@ -249,7 +249,14 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			}
 		}
 		if sc, ok := t.Cache.(StreamingWriteCache); ok {
-			resp.Body = &teedBody{resp.Body, sc.GetWriter(cacheKey)}
+			cacheWriter := sc.GetWriter(cacheKey)
+			headerBytes, err := httputil.DumpResponse(resp, false)
+			if err == nil {
+				_, err = cacheWriter.Write(headerBytes)
+				if err == nil {
+					resp.Body = &teedBody{resp.Body, cacheWriter}
+				}
+			}
 		} else {
 			respBytes, err := httputil.DumpResponse(resp, true)
 			if err == nil {
