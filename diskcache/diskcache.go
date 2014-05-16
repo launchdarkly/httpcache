@@ -38,6 +38,15 @@ func (c *Cache) Delete(key string) {
 	c.d.Erase(key)
 }
 
+func (c *Cache) GetReader(key string) (r io.Reader, ok bool) {
+	key = keyToFilename(key)
+	r, err := c.d.ReadStream(key)
+	if err != nil {
+		return nil, false
+	}
+	return r, true
+}
+
 func keyToFilename(key string) string {
 	h := md5.New()
 	io.WriteString(h, key)

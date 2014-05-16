@@ -10,6 +10,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httputil"
 	"strings"
@@ -26,6 +27,7 @@ const (
 )
 
 // A Cache interface is used by the Transport to store and retrieve responses.
+// Implementations that can stream their content should implement StreamingCache
 type Cache interface {
 	// Get returns the []byte representation of a cached response and a bool
 	// set to true if the value isn't empty
@@ -36,21 +38,44 @@ type Cache interface {
 	Delete(key string)
 }
 
+// An interfaces for caches that can provider a Reader to their content
+type StreamingCache interface {
+	Cache
+	GetReader(key string) (r io.Reader, ok bool)
+}
+
 // cacheKey returns the cache key for req.
 func cacheKey(req *http.Request) string {
 	return req.URL.String()
 }
 
+// cacheStreamer wraps a non-streaming cache and provides GetReader
+type cacheStreamer struct {
+	Cache
+}
+
+// GetReader takes bytes from the underlying cache and returns a Reader in the form of a Buffer
+func (cs *cacheStreamer) GetReader(key string) (io.Reader, bool) {
+	cachedVal, ok := cs.Cache.Get(key)
+	if !ok {
+		return nil, false
+	}
+	b := bytes.NewBuffer(cachedVal)
+	return b, true
+}
+
 // CachedResponse returns the cached http.Response for req if present, and nil
 // otherwise.
 func CachedResponse(c Cache, req *http.Request) (resp *http.Response, err error) {
-	cachedVal, ok := c.Get(cacheKey(req))
+	sc, ok := c.(StreamingCache)
+	if !ok {
+		sc = &cacheStreamer{c}
+	}
+	r, ok := sc.GetReader(cacheKey(req))
 	if !ok {
 		return
 	}
-
-	b := bytes.NewBuffer(cachedVal)
-	return http.ReadResponse(bufio.NewReader(b), req)
+	return http.ReadResponse(bufio.NewReader(r), req)
 }
 
 // MemoryCache is an implemtation of Cache that stores responses in an in-memory map.
