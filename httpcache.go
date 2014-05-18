@@ -47,7 +47,7 @@ type StreamingCache interface {
 // An interface for caches that can provide a Writer bound to a key
 type StreamingWriteCache interface {
 	Cache
-	GetWriter(key string) (w io.Writer)
+	GetWriter(key string) (w io.WriteCloser)
 }
 
 // cacheKey returns the cache key for req.
@@ -272,7 +272,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 // teedBody provides the same functionality as io.TeeReader, but with Close as well
 type teedBody struct {
 	body        io.ReadCloser
-	cacheWriter io.Writer
+	cacheWriter io.WriteCloser
 }
 
 func (b *teedBody) Read(p []byte) (n int, err error) {
@@ -286,6 +286,7 @@ func (b *teedBody) Read(p []byte) (n int, err error) {
 }
 
 func (b *teedBody) Close() error {
+	b.cacheWriter.Close()
 	return b.body.Close()
 }
 

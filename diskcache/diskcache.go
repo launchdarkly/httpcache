@@ -47,7 +47,7 @@ func (c *Cache) GetReader(key string) (r io.Reader, ok bool) {
 	return r, true
 }
 
-func (c *Cache) GetWriter(key string) io.Writer {
+func (c *Cache) GetWriter(key string) io.WriteCloser {
 	key = keyToFilename(key)
 	pr, pw := io.Pipe()
 	go func() {
