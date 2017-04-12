@@ -41,6 +41,14 @@ type Cache interface {
 
 // cacheKey returns the cache key for req.
 func cacheKey(req *http.Request) string {
+
+	// Ideally we'd compute the cache key by taking into account the Vary headers.
+	// Ugly hack for now -- add the authorization header to the cache key.
+	auth := req.Header.Get("Authorization")
+	if auth != "" {
+		return auth + "_" + req.URL.String()
+	}
+
 	return req.URL.String()
 }
 
