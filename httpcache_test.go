@@ -2,6 +2,7 @@ package httpcache
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"io"
@@ -125,6 +126,15 @@ func setup() {
 		updateFieldsCounter++
 		if r.Header.Get("if-none-match") != "" {
 			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Write([]byte("Some text content"))
+	}))
+	mux.HandleFunc("/keeponerror", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shouldFail := r.Header.Get("Should-Fail") == "true"
+		if shouldFail {
+			time.Sleep(1 * time.Second)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.Write([]byte("Some text content"))
@@ -591,6 +601,54 @@ func TestGetWithDoubleVary(t *testing.T) {
 		defer resp.Body.Close()
 		if resp.Header.Get(XFromCache) != "" {
 			t.Fatal("XFromCache header isn't blank")
+		}
+	}
+}
+
+func TestGetWithEvictOnError(t *testing.T) {
+	resetTest()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", s.server.URL+"/evictonerror", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Cache-Control", "keep-on-error=false")
+	{
+		req.Header.Set("Should-Fail", "false")
+		resp, err := s.client.Do(req)
+		if err != nil {
+			t.Fatal("error is nil")
+		}
+		defer resp.Body.Close()
+	}
+	{
+		req.Header.Set("Should-Fail", "false")
+		resp, err := s.client.Do(req)
+		if err != nil {
+			t.Fatal("error is nil")
+		}
+		defer resp.Body.Close()
+		if resp.Header.Get(XFromCache) != "1" {
+			t.Fatalf(`XFromCache header isn't "1": %v`, resp.Header.Get(XFromCache))
+		}
+	}
+	{
+		req.Header.Set("Should-Fail", "true")
+		_, err := s.client.Do(req)
+		if err == nil {
+			t.Fatal("error is nil")
+		}
+	}
+	{
+		req.Header.Set("Should-Fail", "false")
+		resp, err := s.client.Do(req)
+		if err != nil {
+			t.Fatal("error is nil")
+		}
+		defer resp.Body.Close()
+		if resp.Header.Get(XFromCache) != "1" {
+			t.Fatalf(`XFromCache header isn't "1": %v`, resp.Header.Get(XFromCache))
 		}
 	}
 }
