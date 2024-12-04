@@ -260,7 +260,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			cachedResp.Status = fmt.Sprintf("%d %s", http.StatusOK, http.StatusText(http.StatusOK))
 			cachedResp.StatusCode = http.StatusOK
 			return cachedResp, nil
-		} else if (err != nil || (cachedResp != nil && resp.StatusCode >= 500)) &&
+		} else if (err != nil || resp.StatusCode >= 500) &&
 			req.Method == "GET" && keepOnError(req.Header) {
 			// In case of transport or backend server failure and keep-on-error activated, keep the cache
 			return nil, err

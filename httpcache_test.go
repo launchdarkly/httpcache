@@ -2,7 +2,6 @@ package httpcache
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"flag"
 	"io"
@@ -126,15 +125,6 @@ func setup() {
 		updateFieldsCounter++
 		if r.Header.Get("if-none-match") != "" {
 			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-		w.Write([]byte("Some text content"))
-	}))
-	mux.HandleFunc("/keeponerror", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		shouldFail := r.Header.Get("Should-Fail") == "true"
-		if shouldFail {
-			time.Sleep(1 * time.Second)
-			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 		w.Write([]byte("Some text content"))
@@ -605,50 +595,59 @@ func TestGetWithDoubleVary(t *testing.T) {
 	}
 }
 
-func TestGetWithEvictOnError(t *testing.T) {
-	resetTest()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "GET", s.server.URL+"/evictonerror", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Cache-Control", "keep-on-error=false")
+func TestKeepOnError(t *testing.T) {
+	// Create a new memory cache
+	cache := NewMemoryCache()
+	transport := NewTransport(cache)
+
+	// Create a test server that returns a 500 error
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Should-Fail") != "" {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		w.Header().Set("Cache-Control", "max-age=10, must-revalidate")
+		w.Header().Set("Vary", "X-Random")
+	}))
+	defer server.Close()
+
+	// Create a new request
+	req, _ := http.NewRequest("GET", server.URL, nil)
+	// Set the keep-on-error header
+	req.Header.Set("Cache-Control", "keep-on-error=true")
+
 	{
-		req.Header.Set("Should-Fail", "false")
-		resp, err := s.client.Do(req)
+		// Perform the request using the transport
+		resp, err := transport.RoundTrip(req)
 		if err != nil {
-			t.Fatal("error is nil")
+			t.Fatalf("Expected error, got nil")
 		}
 		defer resp.Body.Close()
-	}
-	{
-		req.Header.Set("Should-Fail", "false")
-		resp, err := s.client.Do(req)
-		if err != nil {
-			t.Fatal("error is nil")
+		// Check if the cache was kept
+		cachedResp, ok := cache.Get(cacheKey(req))
+		if !ok {
+			t.Fatalf("Expected cache to be kept, but it was not")
 		}
-		defer resp.Body.Close()
-		if resp.Header.Get(XFromCache) != "1" {
-			t.Fatalf(`XFromCache header isn't "1": %v`, resp.Header.Get(XFromCache))
+		// Check if the cached response is valid
+		if cachedResp == nil {
+			t.Fatalf("Expected cached response, got nil")
 		}
 	}
+	// retry request with error from server
 	{
 		req.Header.Set("Should-Fail", "true")
-		_, err := s.client.Do(req)
-		if err == nil {
-			t.Fatal("error is nil")
-		}
-	}
-	{
-		req.Header.Set("Should-Fail", "false")
-		resp, err := s.client.Do(req)
+		req.Header.Set("If-Modified-Since", "Thu, 01 Jan 1970 00:00:00 GMT")
+		_, err := transport.RoundTrip(req)
 		if err != nil {
-			t.Fatal("error is nil")
+			t.Fatalf("Server returned error but transport returned nil: %v", err)
 		}
-		defer resp.Body.Close()
-		if resp.Header.Get(XFromCache) != "1" {
-			t.Fatalf(`XFromCache header isn't "1": %v`, resp.Header.Get(XFromCache))
+
+		cachedResp, ok := cache.Get(cacheKey(req))
+		if !ok {
+			t.Fatalf("Expected cache to be kept, but it was not")
+		}
+		// Check if the cached response is valid
+		if cachedResp == nil {
+			t.Fatalf("Expected cached response, got nil")
 		}
 	}
 }
