@@ -261,7 +261,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			cachedResp.StatusCode = http.StatusOK
 			return cachedResp, nil
 		} else if (err != nil || resp.StatusCode >= 500) &&
-			req.Method == "GET" && keepOnError(req.Header) {
+			req.Method == "GET" && keepCacheOnError(req.Header) {
 			// In case of transport or backend server failure and keep-on-error activated, keep the cache
 			return resp, err
 		} else {
@@ -444,7 +444,7 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	return stale
 }
 
-func keepOnError(reqHeaders http.Header) bool {
+func keepCacheOnError(reqHeaders http.Header) bool {
 	reqCacheControl := parseCacheControl(reqHeaders)
 	val, ok := reqCacheControl["keep-on-error"]
 	return ok && val == "true"

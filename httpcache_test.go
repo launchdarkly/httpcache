@@ -596,12 +596,12 @@ func TestGetWithDoubleVary(t *testing.T) {
 	}
 }
 
-func TestKeepOnError(t *testing.T) {
+func TestKeepCacheOnError(t *testing.T) {
 	// Create a new memory cache
 	cache := NewMemoryCache()
 	transport := NewTransport(cache)
 
-	// Create a test server that returns a 500 error
+	// Create a test server that returns a 500 error or timeout
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Should-Fail") != "" {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -615,14 +615,11 @@ func TestKeepOnError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create a new request
 	req, _ := http.NewRequest("GET", server.URL, nil)
-	// Set the keep-on-error header
 	req.Header.Set("Cache-Control", "keep-on-error=true")
 	req.Header.Set("X-Random", "123")
 
 	{
-		// Perform the request using the transport
 		resp, err := transport.RoundTrip(req)
 		if err != nil {
 			t.Fatalf("Expected error, got nil")
@@ -638,7 +635,7 @@ func TestKeepOnError(t *testing.T) {
 			t.Fatalf("Expected cached response, got nil")
 		}
 	}
-	// retry request with error from server
+	// server error response should not evict cache entry
 	{
 		req.Header.Set("Should-Fail", "true")
 		req.Header.Set("If-Modified-Since", "Thu, 01 Jan 1970 00:00:00 GMT") // force revalidation
@@ -659,6 +656,7 @@ func TestKeepOnError(t *testing.T) {
 			t.Fatalf("Expected cached response, got nil")
 		}
 	}
+	// when transport timeout, cache should be kept
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
