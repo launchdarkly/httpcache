@@ -2,6 +2,7 @@ package httpcache
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"io"
@@ -604,8 +605,12 @@ func TestKeepOnError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Should-Fail") != "" {
 			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
-		w.Header().Set("Cache-Control", "max-age=10, must-revalidate")
+		if r.Header.Get("Should-Sleep") != "" {
+			time.Sleep(1 * time.Second)
+		}
+		w.Header().Set("Etag", "123")
 		w.Header().Set("Vary", "X-Random")
 	}))
 	defer server.Close()
@@ -614,6 +619,7 @@ func TestKeepOnError(t *testing.T) {
 	req, _ := http.NewRequest("GET", server.URL, nil)
 	// Set the keep-on-error header
 	req.Header.Set("Cache-Control", "keep-on-error=true")
+	req.Header.Set("X-Random", "123")
 
 	{
 		// Perform the request using the transport
@@ -635,17 +641,40 @@ func TestKeepOnError(t *testing.T) {
 	// retry request with error from server
 	{
 		req.Header.Set("Should-Fail", "true")
-		req.Header.Set("If-Modified-Since", "Thu, 01 Jan 1970 00:00:00 GMT")
-		_, err := transport.RoundTrip(req)
+		req.Header.Set("If-Modified-Since", "Thu, 01 Jan 1970 00:00:00 GMT") // force revalidation
+		resp, err := transport.RoundTrip(req)
 		if err != nil {
 			t.Fatalf("Server returned error but transport returned nil: %v", err)
 		}
-
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("response status code isn't 500 Internal Server Error: %v", resp.StatusCode)
+		}
 		cachedResp, ok := cache.Get(cacheKey(req))
 		if !ok {
 			t.Fatalf("Expected cache to be kept, but it was not")
 		}
-		// Check if the cached response is valid
+		// Check if the cached response is valid and not replaced by error response
+		if cachedResp == nil {
+			t.Fatalf("Expected cached response, got nil")
+		}
+	}
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		req, _ = http.NewRequestWithContext(ctx, "GET", server.URL, nil)
+		req.Header.Set("Should-Sleep", "true")
+		req.Header.Set("If-Modified-Since", "Thu, 01 Jan 1970 00:00:00 GMT") // force revalidation
+		req.Header.Set("X-Random", "123")
+		req.Header.Set("Cache-Control", "keep-on-error=true")
+		_, err := transport.RoundTrip(req)
+		if err == nil {
+			t.Fatalf("Transport returned nil error")
+		}
+		cachedResp, ok := cache.Get(cacheKey(req))
+		if !ok {
+			t.Fatalf("Expected cache to be kept, but it was not")
+		}
 		if cachedResp == nil {
 			t.Fatalf("Expected cached response, got nil")
 		}

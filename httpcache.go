@@ -263,7 +263,7 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 		} else if (err != nil || resp.StatusCode >= 500) &&
 			req.Method == "GET" && keepOnError(req.Header) {
 			// In case of transport or backend server failure and keep-on-error activated, keep the cache
-			return nil, err
+			return resp, err
 		} else {
 			if err != nil || resp.StatusCode != http.StatusOK {
 				t.Cache.Delete(cacheKey)
