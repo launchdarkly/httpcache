@@ -733,13 +733,13 @@ func TestKeepCacheOnError(t *testing.T) {
 			time.Sleep(1 * time.Second)
 		}
 		w.Header().Set("Etag", "123")
-		w.Header().Set("Vary", "X-Random")
+		w.Header().Set("Vary", "Authorization")
 	}))
 	defer server.Close()
 
 	req, _ := http.NewRequest("GET", server.URL, nil)
 	req.Header.Set("Cache-Control", "keep-on-error=true")
-	req.Header.Set("X-Random", "123")
+	req.Header.Set("Authorization", "123")
 
 	{
 		resp, err := transport.RoundTrip(req)
@@ -785,7 +785,7 @@ func TestKeepCacheOnError(t *testing.T) {
 		req, _ = http.NewRequestWithContext(ctx, "GET", server.URL, nil)
 		req.Header.Set("Should-Sleep", "true")
 		req.Header.Set("If-Modified-Since", "Thu, 01 Jan 1970 00:00:00 GMT") // force revalidation
-		req.Header.Set("X-Random", "123")
+		req.Header.Set("Authorization", "123")
 		req.Header.Set("Cache-Control", "keep-on-error=true")
 		_, err := transport.RoundTrip(req)
 		if err == nil {
