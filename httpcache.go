@@ -3,6 +3,7 @@
 //
 // It is only suitable for use as a 'private' cache (i.e. for a web-browser or an API-client
 // and not for a shared proxy).
+//
 package httpcache
 
 import (
@@ -260,10 +261,6 @@ func (t *Transport) RoundTrip(req *http.Request) (resp *http.Response, err error
 			cachedResp.Status = fmt.Sprintf("%d %s", http.StatusOK, http.StatusText(http.StatusOK))
 			cachedResp.StatusCode = http.StatusOK
 			return cachedResp, nil
-		} else if (err != nil || resp.StatusCode >= 500) &&
-			req.Method == "GET" && keepCacheOnError(req.Header) {
-			// In case of transport or backend server failure and keep-on-error activated, keep the cache
-			return resp, err
 		} else {
 			if err != nil || resp.StatusCode != http.StatusOK {
 				t.Cache.Delete(cacheKey)
@@ -444,12 +441,6 @@ func getFreshness(respHeaders, reqHeaders http.Header) (freshness int) {
 	return stale
 }
 
-func keepCacheOnError(reqHeaders http.Header) bool {
-	reqCacheControl := parseCacheControl(reqHeaders)
-	val, ok := reqCacheControl["keep-on-error"]
-	return ok && val == "true"
-}
-
 // Returns true if either the request or the response includes the stale-if-error
 // cache control extension: https://tools.ietf.org/html/rfc5861
 func canStaleOnError(respHeaders, reqHeaders http.Header) bool {
@@ -497,14 +488,14 @@ func canStaleOnError(respHeaders, reqHeaders http.Header) bool {
 func getEndToEndHeaders(respHeaders http.Header) []string {
 	// These headers are always hop-by-hop
 	hopByHopHeaders := map[string]struct{}{
-		"Connection":          {},
-		"Keep-Alive":          {},
-		"Proxy-Authenticate":  {},
-		"Proxy-Authorization": {},
-		"Te":                  {},
-		"Trailers":            {},
-		"Transfer-Encoding":   {},
-		"Upgrade":             {},
+		"Connection":          struct{}{},
+		"Keep-Alive":          struct{}{},
+		"Proxy-Authenticate":  struct{}{},
+		"Proxy-Authorization": struct{}{},
+		"Te":                struct{}{},
+		"Trailers":          struct{}{},
+		"Transfer-Encoding": struct{}{},
+		"Upgrade":           struct{}{},
 	}
 
 	for _, extra := range strings.Split(respHeaders.Get("connection"), ",") {
@@ -514,7 +505,7 @@ func getEndToEndHeaders(respHeaders http.Header) []string {
 		}
 	}
 	endToEndHeaders := []string{}
-	for respHeader := range respHeaders {
+	for respHeader, _ := range respHeaders {
 		if _, ok := hopByHopHeaders[respHeader]; !ok {
 			endToEndHeaders = append(endToEndHeaders, respHeader)
 		}
